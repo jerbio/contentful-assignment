@@ -1,4 +1,4 @@
-
+const path = require('path');
 var express = require('express');
 const { status } = require('express/lib/response');
 const sharp = require('sharp');
@@ -10,11 +10,11 @@ router.get('/users/:id', function(req, res, next) {
   let filePaths = 
     {
       '2e4d5d8f-ac55-4415-92f7-b1e78b58e0d3':{
-        path: 'assets\\pictimely_design_a_photo_of_an_adult_engaging_in_self_care._Mak_dafdfb21-bec3-46c1-8b17-6b0db999f334.png',
+        path: 'assets/pictimely_design_a_photo_of_an_adult_engaging_in_self_care._Mak_dafdfb21-bec3-46c1-8b17-6b0db999f334.png',
         contentType: 'image/png'
       },
       '4fc9b45e-b92a-4fd7-8df0-958ebb72ce0f':{
-        path: 'assets\\pictimely_design_a_photo_of_someone_responding_to_emails_10cea66b-1fbc-46df-8e5c-3e368d87e3ee.png',
+        path: 'assets/pictimely_design_a_photo_of_someone_responding_to_emails_10cea66b-1fbc-46df-8e5c-3e368d87e3ee.png',
         contentType: 'image/png'
       }
     };
@@ -30,8 +30,11 @@ router.get('/users/:id', function(req, res, next) {
   }
 
 
+
   const filePathInfo = filePaths[req.params.id];
-  res.sendFile(filePathInfo.path);
+
+  let absolutePath = path.resolve(filePathInfo.path);
+  res.sendFile(absolutePath);
 });
 
 ///This route takes a parameter as a encodedUriComponent of base64 json string in the format
@@ -45,10 +48,10 @@ router.get('/data/:request', function(req, res, next) {
   let request64 = decodeURIComponent(req.params.request);
   const decodedRequestStr = atob(request64);
   const jsonParams = JSON.parse(decodedRequestStr);
-  const {fullUri} = jsonParams;
+  const {uri, contentType} = jsonParams;
 
 
-  fetch(fullUri).then((data) => {
+  fetch(uri).then((data) => {
     if(!data.ok) {
       res(data.statusText, data.status)
     }
@@ -75,11 +78,46 @@ router.get('/data/:request', function(req, res, next) {
 
       let fileBuffer = new Buffer.alloc(imgBuffer.byteLength);
       fileBuffer = Buffer.from(imgBuffer);
-      const contentType = data.headers.get("Content-Type");
+      const responseContentType = data.headers.get("Content-Type") || contentType;
 
       
       sharp(fileBuffer).toBuffer().then((buffer) => {
-        res.set('Content-Type', contentType);
+        function bufferToExtension(buffer) {
+          if(query) {
+            if(query.extension) {
+              const extension = query.extension.toLowerCase();
+              switch(extension) {
+                case 'png':
+                  sharp(buffer).png()
+                  .toBuffer().then((buffer) => {
+                    res.set('Content-Type', 'image/png');
+                    res.send(buffer);
+                  });
+                  return;
+                case 'jpg':
+                case 'jpeg':
+                  sharp(buffer).jpeg().toBuffer().then((buffer) => {
+                    res.set('Content-Type', 'image/jpeg');
+                    res.send(buffer);
+                  });
+                  return;
+                case 'gif':
+                  sharp(buffer).gif().toBuffer().then((buffer) => {
+                    res.set('Content-Type', 'image/gif');
+                    res.send(buffer);
+                  });
+                  return;
+                default:
+                  res.send(buffer);
+                  return;
+              }
+            }
+            res.send(buffer);
+          }
+        }
+
+
+        res.set('Content-Type', responseContentType);
         const {query} = req;
         if(query) {
           if(query.preset) {
@@ -113,7 +151,7 @@ router.get('/data/:request', function(req, res, next) {
         }
       
         if(height && width && height <= 0 && width <= 0 && (!ratio)) {
-          res.send(buffer);
+          bufferToExtension(buffer);
           return;
         }
       
@@ -122,9 +160,9 @@ router.get('/data/:request', function(req, res, next) {
         const fitType = 'fill';
         sharp(buffer).metadata().then((sizeInfo) => {
           if((height||width) && (height != -1 || width != -1)) {
-            sharp(buffer).resize(width, height, {fit: fitType}).toBuffer().then((bufferResponse) => {
-              res.send(bufferResponse);
-            });
+            sharp(buffer)
+            .resize(width, height, {fit: fitType})
+            .toBuffer().then(bufferToExtension);
             return;
           }
 
@@ -135,9 +173,7 @@ router.get('/data/:request', function(req, res, next) {
             sharp(buffer)
             .resize(Math.round(width * ratio), Math.round(height * ratio), {fit: fitType})
             .toBuffer()
-            .then((bufferResponse) => {
-              res.send(bufferResponse);
-            });
+            .then(bufferToExtension);
             return;
           }
         });
